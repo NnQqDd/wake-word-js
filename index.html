@@ -1,0 +1,45 @@
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs/dist/tf.min.js"></script> 
+
+<script type="module">
+import {WakeWordPipeline} from './classes.js';
+
+async function loadWavAsTfTensor(url) {
+  // Fetch file
+  const response = await fetch(url);
+  const arrayBuffer = await response.arrayBuffer();
+
+  // Decode audio
+  const audioCtx = new AudioContext({ sampleRate: 16000 }); // optional
+  const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+
+  // Assume MONO audio
+  let samples = audioBuffer.getChannelData(0); // Float32Array
+
+  // Safety check
+  if (samples.length !== 40000) {
+    throw new Error(`Expected 40000 samples, got ${samples.length}`);
+  }
+
+  let result = tf.tensor(samples, [1, 40000], 'float32');
+  return result;
+}
+
+
+async function main(){
+  let wakeWordPipeline = await WakeWordPipeline.fromFiles("mel-spectrogram.onnx", "speech-embedding.onnx", "vj5petgd.onnx");
+  let paths = ["positive.wav", "negative.wav"];
+  for(let i = 0; i < paths.length; i++){
+    let waveform = await loadWavAsTfTensor(paths[i]);
+    let final = await wakeWordPipeline(waveform);
+    console.log("TEST", paths[i]);
+    console.log("FINAL", final.shape);
+    console.log("FINAL", final.dataSync());
+    console.log("WAVE", waveform.shape);
+    waveform.dispose();    
+    final.dispose();
+  }
+}
+
+main();
+</script>

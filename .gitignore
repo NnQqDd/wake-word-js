@@ -1,0 +1,6 @@
+# Ignore all ONNX models
+*.onnx
+
+# But keep these two
+!speech-embedding.onnx
+!mel-spectrogram.onnx
