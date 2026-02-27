@@ -173,12 +173,12 @@ export class PretrainedONNXModel {
   }
 
   async call(...inputTensors) {
-    let inputs = {}
-    let isTensor = false
+    let inputs = {};
+    let isTensor = false;
     for (let i = 0; i < this.inputNames.length; i++) {
       if (isTfTensor(inputTensors[i])){
-        isTensor = true
-        inputTensors[i] = tfTensorToOrt(inputTensors[i])
+        isTensor = true;
+        inputTensors[i] = tfTensorToOrt(inputTensors[i]);
       }
       inputs[this.inputNames[i]] = inputTensors[i];
     }
@@ -186,7 +186,7 @@ export class PretrainedONNXModel {
     let outputs = []
     if(isTensor){
       for (let i = 0; i < this.outputNames.length; i++){
-        outputs.push(ortTensorToTf(output[this.outputNames[i]]))
+        outputs.push(ortTensorToTf(output[this.outputNames[i]]));
       } 
     }
     else{
@@ -223,7 +223,7 @@ export class EmbeddingPipeline {
     for (let i = 0; i < Math.min(b, batchSize); i += batchSize) {
       let batch = audio.slice([i, 0], [Math.min(batchSize, b - i), -1]);
       let spec = await this.spectrogram(batch);
-      let mel = tf.squeeze(spec, 1).div(10).add(2);
+      let mel = tf.tidy(() => tf.squeeze(spec, 1).div(10).add(2));
       chunks.push(mel);
       batch.dispose();
       spec.dispose();
@@ -407,10 +407,16 @@ export class WakeWordPipeline{
       throw new Error(`Input length ${T} exceeds ${TARGET}`);
     }
     
-    let totalPad = this.max_length - T;
-    let padLeft = Math.floor(totalPad / 2);
-    let padRight = totalPad - padLeft;
-    let padded_wave = tf.pad(waveform, [[0, 0], [padLeft, padRight]]);
+    let padded_wave = null;
+    if (this.max_length > T){
+      let totalPad = this.max_length - T;
+      let padLeft = Math.floor(totalPad / 2);
+      let padRight = totalPad - padLeft;
+      padded_wave = tf.pad(waveform, [[0, 0], [padLeft, padRight]]);
+    }
+    else{
+      padded_wave = waveform;
+    }
     
     let prep = await this.embeddingPipeline(padded_wave);
     let final = await this.wakeword(prep);
@@ -418,7 +424,7 @@ export class WakeWordPipeline{
     conf = conf[0][0];
 
     waveform.dispose();
-    padded_wave.dispose()
+    if(this.max_length < T){padded_wave.dispose();}
     prep.dispose();
     final.dispose()
     
