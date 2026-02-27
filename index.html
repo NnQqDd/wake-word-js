@@ -22,73 +22,64 @@
     const MIN_CONFIDENCE = 0.9;
     const BUFFER_SAMPLES = 4096;         
     const MAX_BUFFER_SAMPLES = 10*BUFFER_SAMPLES;
-    const WAIT_CHUNKS = 4;
+    const MAX_MODEL_SAMPLES = 40000;
+    const MAX_COOLDOWN = 4;
 
-    let wakeWordPipeline = null;
-    let audioContext = null;
-    let processor = null;
-    let stream = null;
-
-    let audioBuffer = new Float32Array(MAX_BUFFER_SAMPLES);
-    let cooldown = 0;                   // chunks to wait after detection
-
-    const logEl = document.getElementById('log');
-    const statusEl = document.getElementById('status');
-
-    function log(msg) {
-      const time = new Date().toLocaleTimeString();
-      logEl.innerHTML += `<div>[${time}] ${msg}</div>`;
-      logEl.scrollTop = logEl.scrollHeight;
-    }
+    let WAKEWORD_PIPELINE = null;
+    let AUDIO_SAMPLES = new Float32Array(0);;
+    let COOLDOWN = 0;
 
     // ==================== LOAD MODEL ====================
     async function initPipeline() {
-      wakeWordPipeline = await WakeWordPipeline.fromFiles(
+      WAKEWORD_PIPELINE = await WakeWordPipeline.fromFiles(
         "mel-spectrogram.onnx",
         "speech-embedding.onnx",
-        "vj5petgd.onnx"
+        "vj5petgd.onnx",
+        MAX_MODEL_SAMPLES
       );
     }
 
     // ==================== EXTRA AUDIO CALLBACK ====================
     function wakeWordCallback(confidence){
-
+      COOLDOWN -= 1;
+      log(`Confidence ${confidence.toFixed(4)}`);
+      if (confidence > MIN_CONFIDENCE && COOLDOWN <= 0){
+        log(`WAKE WORD DETECTED! (conf = ${confidence.toFixed(4)})`);
+        consoleLog(`WAKE WORD DETECTED! (conf = ${confidence.toFixed(4)})`);
+        COOLDOWN = MAX_COOLDOWN;
+      }
     }
     
     // ==================== MAIN AUDIO CALLBACK ====================
-    function audioProcess(e) {
-      const input = e.inputBuffer.getChannelData(0); // mono
-
-      // Write new chunk into circular buffer
-      for (let i = 0; i < input.length; i++) {
-        audioBuffer[writeIndex] = input[i];
-        writeIndex = (writeIndex + 1) % MAX_BUFFER_SAMPLES;
+    async function audioProcess(e) {
+      let new_samples = e.inputBuffer.getChannelData(0); // mono
+      
+      let current_samples = new Float32Array(AUDIO_SAMPLES.length + new_samples.length);
+      current_samples.set(AUDIO_SAMPLES, 0);
+      current_samples.set(new_samples, AUDIO_SAMPLES.length);
+      if (current_samples.length > MAX_BUFFER_SAMPLES){
+        current_samples = current_samples.subarray(current_samples.length - MAX_BUFFER_SAMPLES);
       }
-
-      // Every 0.5s we have a full chunk → run inference
-      if (writeIndex % BUFFER_SAMPLES === 0) {
-        if (cooldown > 0) {
-          cooldown--;
-          return;
-        }
-
-        // Extract last 40000 samples (2.5s)
-        const waveform = new Float32Array(MAX_BUFFER_SAMPLES);
-        for (let i = 0; i < MAX_BUFFER_SAMPLES; i++) {
-          waveform[i] = audioBuffer[(writeIndex + i) % MAX_BUFFER_SAMPLES];
-        }
-
-        // Run inference
-        conf = await wakeWordPipeline(waveform);
-        log(`Confidence: ${conf.toFixed(4)}`);
-
-        if (conf > MIN_CONFIDENCE) {
-          log(`WAKE WORD DETECTED! (conf = ${conf.toFixed(4)})`);
-        }
+      AUDIO_SAMPLES = current_samples;
+      
+      let input_samples = null;
+      if (AUDIO_SAMPLES.length > MAX_MODEL_SAMPLES){
+        input_samples = AUDIO_SAMPLES.subarray(AUDIO_SAMPLES.length - MAX_MODEL_SAMPLES);  
+      }
+      else{
+        input_samples = AUDIO_SAMPLES;
+      }
+      
+      let conf = await WAKEWORD_PIPELINE(input_samples);
+      wakeWordCallback(conf);
     }
 
     // ==================== START MICROPHONE ====================
     async function startListening() {
+      let audioContext = null;
+      let processor = null;
+      let stream = null;
+
       try {
         stream = await navigator.mediaDevices.getUserMedia({
           audio: {
@@ -114,7 +105,27 @@
       }
     }
 
-    // ==================== BUTTON ====================
+    // ==================== HTML ====================
+    const logEl = document.getElementById('log');
+    const statusEl = document.getElementById('status');
+    const MAX_HISTORY_LENGTH = 24;
+    let HISTORY = [];
+
+    function consoleLog(msg){
+      const time = new Date().toLocaleTimeString();
+      console.log(`[${time}] ${msg}`);
+    }
+
+    function log(msg) {
+      const time = new Date().toLocaleTimeString();
+      HISTORY.push(`<div>[${time}] ${msg}</div>`);
+      if (HISTORY.length > MAX_HISTORY_LENGTH) {
+        HISTORY = HISTORY.slice(-MAX_HISTORY_LENGTH);
+      }
+      logEl.innerHTML = HISTORY.join('');
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
     document.getElementById('startBtn').addEventListener('click', async () => {
       document.getElementById('startBtn').disabled = true;
       await initPipeline();
