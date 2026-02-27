@@ -314,7 +314,6 @@ export class EmbeddingPipeline {
     return tf.tensor3d(embeddingsData, [b, nFrames, embeddingDim], 'float32');
   }
 
-  /* GENERATED WITH REFERENCES & GUIDANCES */
   async call(
     audio,
     spectrogramBatchSize = 32,
