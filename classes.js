@@ -217,9 +217,9 @@ export class EmbeddingPipeline {
   }
 
   async audioToSpectrograms(audio, batchSize=128, melBins=32) {
-    const [b, t] = audio.shape;
-    const nFrames = Math.ceil(t / 160 - 3); // 160 = 10ms * 16kHz
-    const chunks = [];
+    let [b, t] = audio.shape;
+    let nFrames = Math.ceil(t / 160 - 3); // 160 = 10ms * 16kHz
+    let chunks = [];
     for (let i = 0; i < Math.min(b, batchSize); i += batchSize) {
       let batch = audio.slice([i, 0], [Math.min(batchSize, b - i), -1]);
       let spec = await this.spectrogram(batch);
@@ -228,7 +228,7 @@ export class EmbeddingPipeline {
       batch.dispose();
       spec.dispose();
     }
-    const spectrograms = tf.concat(chunks, 0);    
+    let spectrograms = tf.concat(chunks, 0);    
     chunks.forEach(c => c.dispose());
     return spectrograms;
   }
@@ -264,8 +264,8 @@ export class EmbeddingPipeline {
       // Call embedder (exactly like Python)
       const result = await this.embedder(windowBatch);
 
-      // Efficient bulk copy using dataSync
-      const resultData = result.dataSync();
+      // Efficient copy
+      const resultData = await result.data();
 
       for (let x = 0; x < batch.length; x++) {
         const { i, j } = batch[x];
@@ -284,6 +284,7 @@ export class EmbeddingPipeline {
 
       windowBatch.dispose();
       result.dispose();
+      
       batch.length = 0;
     };
 
@@ -293,7 +294,11 @@ export class EmbeddingPipeline {
         if (j + windowSize > t) break;
 
         // Extract window [windowSize, melBins, 1] (tidy disposes the temporary [1, ...] slice)
-        const window = specsWithChannel.slice([i, j, 0, 0], [1, windowSize, -1, -1]).squeeze([0]);
+        // const window = specsWithChannel.slice([i, j, 0, 0], [1, windowSize, -1, -1]).squeeze([0]);
+        const window = tf.tidy(() => specsWithChannel
+          .slice([i, j, 0, 0], [1, windowSize, -1, -1])
+          .squeeze([0])
+        );
         batch.push({ i, j, window });
         if (batch.length >= batchSize) {
           await processBatch();
@@ -353,6 +358,7 @@ export class EmbeddingPipeline {
       spectrograms.dispose();
       audioChunk.dispose();
     }
+
     audio.dispose();
 
     // Concatenate along the time (embedding frames) dimension
@@ -372,8 +378,9 @@ export class EmbeddingPipeline {
 export class WakeWordPipeline{
   constructor(){}
   
-  static async fromFiles(spectrogramONNXPath, embedderONNXPath, wakeWordONNXPath) {
-    let instance = new WakeWordPipeline()
+  static async fromFiles(spectrogramONNXPath, embedderONNXPath, wakeWordONNXPath, max_length=40000) {
+    let instance = new WakeWordPipeline();
+    instance.max_length = 40000;
 
     let spectrogram = await PretrainedONNXModel.fromFile(spectrogramONNXPath, null, ["input"], ["output"], true);
     let embedder = await PretrainedONNXModel.fromFile(embedderONNXPath, null, ["input_1"], ["conv2d_19"], true);  
@@ -389,11 +396,39 @@ export class WakeWordPipeline{
     return makeCallable(instance);
   }
 
-  async call(waveform){
-    let prep = await this.embeddingPipeline(waveform);
+  async call(samples){ // Float32Array 
+    if(!(samples instanceof Float32Array)){
+      throw new Error(`Samples are not of Float32Array instance!`);
+    }
+
+    let waveform = tf.tensor(samples, [1, samples.length], 'float32');
+    let T = waveform.shape[1];
+    if (T > this.max_length) {
+      throw new Error(`Input length ${T} exceeds ${TARGET}`);
+    }
+    
+    let totalPad = this.max_length - T;
+    let padLeft = Math.floor(totalPad / 2);
+    let padRight = totalPad - padLeft;
+    let padded_wave = tf.pad(waveform, [[0, 0], [padLeft, padRight]]);
+    
+    let prep = await this.embeddingPipeline(padded_wave);
     let final = await this.wakeword(prep);
+    let conf = await final.array();
+    conf = conf[0][0];
+
+    waveform.dispose();
+    padded_wave.dispose()
     prep.dispose();
-    return final;
+    final.dispose()
+    
+    return conf;
   }
 
+  async forward(waveform){ // [B, T]
+    let preps = await this.embeddingPipeline(waveform);
+    let finals = await this.wakeword(prep);
+    preps.dispose();
+    return finals;
+  }
 }

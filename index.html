@@ -1,45 +1,125 @@
-<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs/dist/tf.min.js"></script> 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Wake Word Demo</title>
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs/dist/tf.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; text-align: center; padding: 20px; }
+    #status { font-size: 1.2em; margin: 20px; }
+    button { padding: 15px 30px; font-size: 1.1em; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h1>Wake Word Demo</h1>
+  <button id="startBtn">Start Listening</button>
+  <div id="log"></div>
+  <script type="module">
+    import {WakeWordPipeline} from './classes.js';
 
-<script type="module">
-import {WakeWordPipeline} from './classes.js';
+    const MIN_CONFIDENCE = 0.9;
+    const BUFFER_SAMPLES = 4096;         
+    const MAX_BUFFER_SAMPLES = 10*BUFFER_SAMPLES;
+    const WAIT_CHUNKS = 4;
 
-async function loadWavAsTfTensor(url) {
-  // Fetch file
-  const response = await fetch(url);
-  const arrayBuffer = await response.arrayBuffer();
+    let wakeWordPipeline = null;
+    let audioContext = null;
+    let processor = null;
+    let stream = null;
 
-  // Decode audio
-  const audioCtx = new AudioContext({ sampleRate: 16000 }); // optional
-  const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+    let audioBuffer = new Float32Array(MAX_BUFFER_SAMPLES);
+    let cooldown = 0;                   // chunks to wait after detection
 
-  // Assume MONO audio
-  let samples = audioBuffer.getChannelData(0); // Float32Array
+    const logEl = document.getElementById('log');
+    const statusEl = document.getElementById('status');
 
-  // Safety check
-  if (samples.length !== 40000) {
-    throw new Error(`Expected 40000 samples, got ${samples.length}`);
-  }
+    function log(msg) {
+      const time = new Date().toLocaleTimeString();
+      logEl.innerHTML += `<div>[${time}] ${msg}</div>`;
+      logEl.scrollTop = logEl.scrollHeight;
+    }
 
-  let result = tf.tensor(samples, [1, 40000], 'float32');
-  return result;
-}
+    // ==================== LOAD MODEL ====================
+    async function initPipeline() {
+      wakeWordPipeline = await WakeWordPipeline.fromFiles(
+        "mel-spectrogram.onnx",
+        "speech-embedding.onnx",
+        "vj5petgd.onnx"
+      );
+    }
 
+    // ==================== EXTRA AUDIO CALLBACK ====================
+    function wakeWordCallback(confidence){
 
-async function main(){
-  let wakeWordPipeline = await WakeWordPipeline.fromFiles("mel-spectrogram.onnx", "speech-embedding.onnx", "vj5petgd.onnx");
-  let paths = ["positive.wav", "negative.wav"];
-  for(let i = 0; i < paths.length; i++){
-    let waveform = await loadWavAsTfTensor(paths[i]);
-    let final = await wakeWordPipeline(waveform);
-    console.log("TEST", paths[i]);
-    console.log("FINAL", final.shape);
-    console.log("FINAL", final.dataSync());
-    console.log("WAVE", waveform.shape);
-    waveform.dispose();    
-    final.dispose();
-  }
-}
+    }
+    
+    // ==================== MAIN AUDIO CALLBACK ====================
+    function audioProcess(e) {
+      const input = e.inputBuffer.getChannelData(0); // mono
 
-main();
-</script>
+      // Write new chunk into circular buffer
+      for (let i = 0; i < input.length; i++) {
+        audioBuffer[writeIndex] = input[i];
+        writeIndex = (writeIndex + 1) % MAX_BUFFER_SAMPLES;
+      }
+
+      // Every 0.5s we have a full chunk → run inference
+      if (writeIndex % BUFFER_SAMPLES === 0) {
+        if (cooldown > 0) {
+          cooldown--;
+          return;
+        }
+
+        // Extract last 40000 samples (2.5s)
+        const waveform = new Float32Array(MAX_BUFFER_SAMPLES);
+        for (let i = 0; i < MAX_BUFFER_SAMPLES; i++) {
+          waveform[i] = audioBuffer[(writeIndex + i) % MAX_BUFFER_SAMPLES];
+        }
+
+        // Run inference
+        conf = await wakeWordPipeline(waveform);
+        log(`Confidence: ${conf.toFixed(4)}`);
+
+        if (conf > MIN_CONFIDENCE) {
+          log(`WAKE WORD DETECTED! (conf = ${conf.toFixed(4)})`);
+        }
+    }
+
+    // ==================== START MICROPHONE ====================
+    async function startListening() {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            sampleRate: 16000,
+            channelCount: 1,
+            echoCancellation: true,
+            noiseSuppression: true,
+          }
+        });
+
+        audioContext = new AudioContext({ sampleRate: 16000 });
+
+        const source = audioContext.createMediaStreamSource(stream);
+        processor = audioContext.createScriptProcessor(4096, 1, 1); // 4096 is good buffer size
+
+        processor.onaudioprocess = audioProcess;
+        source.connect(processor);
+        processor.connect(audioContext.destination);
+        log("Microphone started successfully");
+      } catch (err) {
+        console.error(err);
+        alert("Microphone access denied or not supported");
+      }
+    }
+
+    // ==================== BUTTON ====================
+    document.getElementById('startBtn').addEventListener('click', async () => {
+      document.getElementById('startBtn').disabled = true;
+      await initPipeline();
+      await startListening();
+    });
+  </script>
+</body>
+</html>

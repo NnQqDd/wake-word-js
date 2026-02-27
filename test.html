@@ -1,0 +1,36 @@
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs/dist/tf.min.js"></script> 
+
+<script type="module">
+import {WakeWordPipeline} from './classes.js';
+
+async function loadAudioSamples(url) {
+  // Fetch file
+  const response = await fetch(url);
+  const arrayBuffer = await response.arrayBuffer();
+
+  // Decode audio
+  const audioCtx = new AudioContext({ sampleRate: 16000 }); // optional
+  const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+
+  // Assume MONO audio
+  let samples = audioBuffer.getChannelData(0); // Float32Array
+
+  return samples
+}
+
+
+async function main(){ 
+  let wakeWordPipeline = await WakeWordPipeline.fromFiles("mel-spectrogram.onnx", "speech-embedding.onnx", "vj5petgd.onnx");
+  let paths = ["positive.wav", "negative.wav"]; // Any audios no longer than 2.5s -> 40k samples in 16k sample_rate
+  for(let i = 0; i < paths.length; i++){
+    let samples = await loadAudioSamples(paths[i]);
+    let conf = await wakeWordPipeline(samples);
+    console.log("TEST", paths[i]);
+    console.log("CONF", conf);
+    console.log("samples", samples);  
+  }
+}
+
+main();
+</script>
