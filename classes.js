@@ -220,7 +220,7 @@ export class EmbeddingPipeline {
     let [b, t] = audio.shape;
     let nFrames = Math.ceil(t / 160 - 3); // 160 = 10ms * 16kHz
     let chunks = [];
-    for (let i = 0; i < Math.min(b, batchSize); i += batchSize) {
+    for (let i = 0; i < b; i += batchSize) {
       let batch = audio.slice([i, 0], [Math.min(batchSize, b - i), -1]);
       let spec = await this.spectrogram(batch);
       let mel = tf.tidy(() => tf.squeeze(spec, 1).div(10).add(2));
