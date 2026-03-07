@@ -32,9 +32,9 @@
     // ==================== LOAD MODEL ====================
     async function initPipeline() {
       WAKEWORD_PIPELINE = await WakeWordPipeline.fromFiles(
-        "mel-spectrogram.onnx",
-        "speech-embedding.onnx",
-        "vj5petgd.onnx",
+        "onnx/mel-spectrogram.onnx",
+        "onnx/speech-embedding.onnx",
+        "onnx/vj5petgd.onnx",
         MAX_MODEL_SAMPLES
       );
     }
