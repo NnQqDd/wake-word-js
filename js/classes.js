@@ -1,5 +1,5 @@
 export function makeCallable(instance) {
-  const fn = (x) => instance.call(x);
+  const fn = (...x) => instance.call(...x);
   return fn;
 }
 
@@ -377,9 +377,9 @@ export class EmbeddingPipeline {
 export class WakeWordPipeline{
   constructor(){}
   
-  static async fromFiles(spectrogramONNXPath, embedderONNXPath, wakeWordONNXPath, max_length=40000) {
+  static async fromFiles(spectrogramONNXPath, embedderONNXPath, wakeWordONNXPath, maxLength=40000) {
     let instance = new WakeWordPipeline();
-    instance.max_length = 40000;
+    instance.maxLength = 40000;
 
     let spectrogram = await PretrainedONNXModel.fromFile(spectrogramONNXPath, null, ["input"], ["output"], true);
     let embedder = await PretrainedONNXModel.fromFile(embedderONNXPath, null, ["input_1"], ["conv2d_19"], true);  
@@ -402,28 +402,28 @@ export class WakeWordPipeline{
 
     let waveform = tf.tensor(samples, [1, samples.length], 'float32');
     let T = waveform.shape[1];
-    if (T > this.max_length) {
+    if (T > this.maxLength) {
       throw new Error(`Input length ${T} exceeds ${TARGET}`);
     }
     
-    let padded_wave = null;
-    if (this.max_length > T){
-      let totalPad = this.max_length - T;
+    let padWave = null;
+    if (this.maxLength > T){
+      let totalPad = this.maxLength - T;
       let padLeft = Math.floor(totalPad / 2);
       let padRight = totalPad - padLeft;
-      padded_wave = tf.pad(waveform, [[0, 0], [padLeft, padRight]]);
+      padWave = tf.pad(waveform, [[0, 0], [padLeft, padRight]]);
     }
     else{
-      padded_wave = waveform;
+      padWave = waveform;
     }
     
-    let prep = await this.embeddingPipeline(padded_wave);
+    let prep = await this.embeddingPipeline(padWave);
     let final = await this.wakeword(prep);
     let conf = await final.array();
     conf = conf[0][0];
 
     waveform.dispose();
-    if(this.max_length < T){padded_wave.dispose();}
+    if(this.maxLength < T){padWave.dispose();}
     prep.dispose();
     final.dispose()
     
