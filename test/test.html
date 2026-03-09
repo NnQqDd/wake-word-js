@@ -2,7 +2,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs/dist/tf.min.js"></script> 
 
 <script type="module">
-import {WakeWordPipeline} from './classes.js';
+import {WakeWordPipeline} from '../js/classes.js';
 
 async function loadAudioSamples(url) {
   // Fetch file
@@ -21,8 +21,8 @@ async function loadAudioSamples(url) {
 
 
 async function main(){ 
-  let wakeWordPipeline = await WakeWordPipeline.fromFiles("mel-spectrogram.onnx", "speech-embedding.onnx", "vj5petgd.onnx");
-  let paths = ["samples/positive.wav", "samples/negative.wav"]; // Any audios no longer than 2.5s -> 40k samples in 16k sample_rate
+  let wakeWordPipeline = await WakeWordPipeline.fromFiles("../onnx/mel-spectrogram.onnx", "../onnx/speech-embedding.onnx", "../onnx/vj5petgd.onnx");
+  let paths = ["positive.wav", "negative.wav"]; // Any audios no longer than 2.5s -> 40k samples in 16k sample_rate
   for(let i = 0; i < paths.length; i++){
     let samples = await loadAudioSamples(paths[i]);
     let conf = await wakeWordPipeline(samples);

@@ -17,10 +17,10 @@
   <button id="startBtn">Start Listening</button>
   <div id="log"></div>
   <script type="module">
-    import {WakeWordPipeline} from './classes.js';
+    import {WakeWordPipeline} from './js/classes.js';
 
     const MIN_CONFIDENCE = 0.9;
-    const CHUNK_SAMPLES = 8192;
+    const CHUNK_SAMPLES = 4096;
     const MAX_BUFFER_SAMPLES = 40960;
     const MAX_MODEL_SAMPLES = 40000;
     const MAX_COOLDOWN = 3;
@@ -122,6 +122,7 @@
         });
 
         const audioContext = new AudioContext({ sampleRate: 16000 });
+        console.log("AudioContext sample rate:", audioContext.sampleRate);
 
         // Register the worklet from an inline Blob so no extra file is needed.
         const blob = new Blob([WORKLET_CODE], { type: 'application/javascript' });
